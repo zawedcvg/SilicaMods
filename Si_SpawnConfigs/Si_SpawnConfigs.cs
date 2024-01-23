@@ -205,6 +205,7 @@ namespace Si_SpawnConfigs
             }
         }
 
+
         public static void Command_UndoSpawn(Player callerPlayer, String args)
         {
             // validate argument count
@@ -257,6 +258,55 @@ namespace Si_SpawnConfigs
             }
 
             HelperMethods.AlertAdminAction(callerPlayer, "spawned " + spawnName);
+        }
+
+        public static void SpawnStartingUnitsSmall(Team team, string unit)
+        {
+            Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppArrayBase<Il2Cpp.Structure> allStartingStructures = GameObject.FindObjectsOfType<Il2Cpp.Structure>();
+            int possibleSpawnPositions = allStartingStructures.Count;
+            Il2CppSystem.Random rnd = new Il2CppSystem.Random();
+            int randomSpawnPoint = rnd.Next(0, possibleSpawnPositions);
+            MelonLogger.Msg($"Going to spawn starting small units for {team.name}");
+            foreach(Il2Cpp.Structure structure in allStartingStructures)
+            {
+                if (structure.m_Team == null) continue;
+                Team owner_team = structure.m_Team;
+                if (team == owner_team) 
+                {
+                    SpawnPoint requiredSpawn = structure.SpawnPoints[randomSpawnPoint];
+                    UnityEngine.Transform safe_location = requiredSpawn.GetComponent<UnityEngine.Transform>();
+                    SpawnAtLocation(unit, safe_location.position, safe_location.rotation, owner_team.Index);
+                    break;
+                }
+                break;
+
+            }
+
+        }
+        public static void SpawnStartingUnitsLarge(Team team, string unit)
+        {
+            Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppArrayBase<Il2Cpp.Structure> allStartingStructures = GameObject.FindObjectsOfType<Il2Cpp.Structure>();
+            MelonLogger.Msg($"Going to spawn a large starting unit for {team.name}");
+            foreach(Il2Cpp.Structure structure in allStartingStructures)
+            {
+                if (structure.m_Team == null) continue;
+                Team owner_team = structure.m_Team;
+                if (team == owner_team) 
+                {
+                    Vector3 position = structure.WorldPhysicalCenter;
+                    float radius = structure.PhysicalRadius;
+                    position.x += radius;
+                    position.z += radius;
+                    //structure.
+                    UnityEngine.Transform safe_location = structure.GetComponent<UnityEngine.Transform>();
+                    Quaternion rotation = safe_location.rotation;
+                    SpawnAtLocation(unit, position, rotation, structure.Team.Index);
+
+                    break;
+                }
+                break;
+
+            }
         }
 
         public static GameObject? SpawnAtLocation(String name, Vector3 position, Quaternion rotation, int teamIndex = -1)
