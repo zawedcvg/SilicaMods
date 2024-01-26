@@ -47,6 +47,7 @@ namespace Si_SpawnConfigs
     public class SpawnConfigs : MelonMod
     {
         static bool AdminModAvailable = false;
+        static bool use_relative = false;
         static GameObject? lastSpawnedObject;
 
         public class SpawnSetup
@@ -76,6 +77,16 @@ namespace Si_SpawnConfigs
             }
 
             public List<UnitSpawn>? Units
+            {
+                get;
+                set;
+            }
+            public List<UnitSpawn>? UnitsRelative
+            {
+                get;
+                set;
+            }
+            public bool useRelative
             {
                 get;
                 set;
@@ -187,6 +198,9 @@ namespace Si_SpawnConfigs
                 HelperMethods.CommandCallback spawnCallback = Command_Spawn;
                 HelperMethods.RegisterAdminCommand("!spawn", spawnCallback, Power.Cheat);
 
+                HelperMethods.CommandCallback setRelativeCallback = Command_SetRelative;
+                HelperMethods.RegisterAdminCommand("!setrelative", setRelativeCallback, Power.Cheat);
+
                 HelperMethods.CommandCallback undoSpawnCallback = Command_UndoSpawn;
                 HelperMethods.RegisterAdminCommand("!undospawn", undoSpawnCallback, Power.Cheat);
 
@@ -259,54 +273,10 @@ namespace Si_SpawnConfigs
 
             HelperMethods.AlertAdminAction(callerPlayer, "spawned " + spawnName);
         }
-
-        public static void SpawnStartingUnitsSmall(Team team, string unit)
+        public static void Command_SetRelative(Player callerPlayer, String args)
         {
-            Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppArrayBase<Il2Cpp.Structure> allStartingStructures = GameObject.FindObjectsOfType<Il2Cpp.Structure>();
-            int possibleSpawnPositions = allStartingStructures.Count;
-            Il2CppSystem.Random rnd = new Il2CppSystem.Random();
-            int randomSpawnPoint = rnd.Next(0, possibleSpawnPositions);
-            MelonLogger.Msg($"Going to spawn starting small units for {team.name}");
-            foreach(Il2Cpp.Structure structure in allStartingStructures)
-            {
-                if (structure.m_Team == null) continue;
-                Team owner_team = structure.m_Team;
-                if (team == owner_team) 
-                {
-                    SpawnPoint requiredSpawn = structure.SpawnPoints[randomSpawnPoint];
-                    UnityEngine.Transform safe_location = requiredSpawn.GetComponent<UnityEngine.Transform>();
-                    SpawnAtLocation(unit, safe_location.position, safe_location.rotation, owner_team.Index);
-                    break;
-                }
-                break;
-
-            }
-
-        }
-        public static void SpawnStartingUnitsLarge(Team team, string unit)
-        {
-            Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppArrayBase<Il2Cpp.Structure> allStartingStructures = GameObject.FindObjectsOfType<Il2Cpp.Structure>();
-            MelonLogger.Msg($"Going to spawn a large starting unit for {team.name}");
-            foreach(Il2Cpp.Structure structure in allStartingStructures)
-            {
-                if (structure.m_Team == null) continue;
-                Team owner_team = structure.m_Team;
-                if (team == owner_team) 
-                {
-                    Vector3 position = structure.WorldPhysicalCenter;
-                    float radius = structure.PhysicalRadius;
-                    position.x += radius;
-                    position.z += radius;
-                    //structure.
-                    UnityEngine.Transform safe_location = structure.GetComponent<UnityEngine.Transform>();
-                    Quaternion rotation = safe_location.rotation;
-                    SpawnAtLocation(unit, position, rotation, structure.Team.Index);
-
-                    break;
-                }
-                break;
-
-            }
+            use_relative = true;
+            HelperMethods.AlertAdminAction(callerPlayer, "changed mode to relative");
         }
 
         public static GameObject? SpawnAtLocation(String name, Vector3 position, Quaternion rotation, int teamIndex = -1)
@@ -857,106 +827,172 @@ namespace Si_SpawnConfigs
         public static SpawnSetup GenerateSpawnSetup(bool includeNetIDs = false)
         {
             // set global config options
-            SpawnSetup spawnSetup = new SpawnSetup
-            {
-                Map = NetworkGameServer.GetServerMap()
-            };
+            SpawnSetup spawnSetup = new SpawnSetup();
+            spawnSetup.Teams = new List<TeamSpawn>();
+            spawnSetup.Map = NetworkGameServer.GetServerMap();
             MP_Strategy strategyInstance = GameObject.FindObjectOfType<MP_Strategy>();
             spawnSetup.VersusMode = strategyInstance.TeamsVersus.ToString();
-
-            // create a list of all structures and units
-            spawnSetup.Structures = new List<StructureSpawn>();
-            spawnSetup.Units = new List<UnitSpawn>();
-            spawnSetup.Teams = new List<TeamSpawn>();
-
-            foreach (Team team in Team.Teams)
+            if (use_relative)
             {
-                if (team == null)
-                {
-                    continue;
-                }
+                spawnSetup.UnitsRelative = new List<UnitSpawn>();
+                spawnSetup.useRelative = true;
 
-                TeamSpawn thisTeamSpawn = new TeamSpawn
-                {
-                    Resources = team.StartingResources,
-                    TeamIndex = team.Index
-                };
-                spawnSetup.Teams.Add(thisTeamSpawn);
+                // create a list of all structures and units
 
-                foreach (Structure structure in team.Structures)
+                foreach (Team team in Team.Teams)
                 {
-                    // skip bunkers for now. TODO: address how to safely add bunkers
-                    if (structure.ToString().StartsWith("Bunk"))
+                    if (team == null)
                     {
                         continue;
                     }
 
-                    StructureSpawn thisSpawnEntry = new StructureSpawn();
-
-                    float[] position = new float[]
+                    TeamSpawn thisTeamSpawn = new TeamSpawn
                     {
+                        Resources = team.StartingResources,
+                        TeamIndex = team.Index
+                    };
+                    spawnSetup.Teams.Add(thisTeamSpawn);
+
+                    foreach (Unit unit in team.Units)
+                    {
+                        UnitSpawn thisSpawnEntry = new UnitSpawn();
+
+                        //change this to the base structure
+                        Structure structure = (Il2Cpp.Structure) team.BaseStructure.BaseGameObject;
+                        float[] position = new float[]
+                        {
+                         unit.transform.position.x - structure.WorldPhysicalCenter.x,
+                         unit.transform.position.y - structure.WorldPhysicalCenter.y,
+                         unit.transform.position.z - structure.WorldPhysicalCenter.z
+                        };
+                        thisSpawnEntry.Position = position;
+
+                        Quaternion facingRotation = unit.GetFacingRotation();
+                        float[] rotation = new float[]
+                        {
+                        facingRotation.x,
+                        facingRotation.y,
+                        facingRotation.z,
+                        facingRotation.w
+                        };
+                        thisSpawnEntry.Rotation = rotation;
+
+                        thisSpawnEntry.TeamIndex = unit.Team.Index;
+                        thisSpawnEntry.Classname = unit.ToString().Split('(')[0];
+
+                        // only record health if damaged
+                        if (unit.DamageManager.Health01 < 0.99f)
+                        {
+                            thisSpawnEntry.Health = unit.DamageManager.Health;
+                        }
+
+                        if (unit.IsResourceHolder)
+                        {
+                            thisSpawnEntry.Resources = unit.GetResourceCapacity();
+                        }
+
+                        if (includeNetIDs)
+                        {
+                            thisSpawnEntry.NetID = unit.NetworkComponent.NetID;
+                        }
+
+                        spawnSetup.UnitsRelative.Add(thisSpawnEntry);
+                    }
+                }
+            }
+            else
+            {
+                spawnSetup.Structures = new List<StructureSpawn>();
+                spawnSetup.useRelative = false;
+                spawnSetup.Units = new List<UnitSpawn>();
+
+                foreach (Team team in Team.Teams)
+                {
+                    if (team == null)
+                    {
+                        continue;
+                    }
+
+                    TeamSpawn thisTeamSpawn = new TeamSpawn
+                    {
+                        Resources = team.StartingResources,
+                        TeamIndex = team.Index
+                    };
+                    spawnSetup.Teams.Add(thisTeamSpawn);
+
+                    foreach (Structure structure in team.Structures)
+                    {
+                        // skip bunkers for now. TODO: address how to safely add bunkers
+                        if (structure.ToString().StartsWith("Bunk"))
+                        {
+                            continue;
+                        }
+
+                        StructureSpawn thisSpawnEntry = new StructureSpawn();
+
+                        float[] position = new float[]
+                        {
                             structure.transform.position.x,
                             structure.transform.position.y,
                             structure.transform.position.z
-                    };
-                    thisSpawnEntry.Position = position;
+                        };
+                        thisSpawnEntry.Position = position;
 
-                    float[] rotation = new float[]
-                    {
+                        float[] rotation = new float[]
+                        {
                             structure.transform.rotation.x,
                             structure.transform.rotation.y,
                             structure.transform.rotation.z,
                             structure.transform.rotation.w
-                    };
-                    thisSpawnEntry.Rotation = rotation;
+                        };
+                        thisSpawnEntry.Rotation = rotation;
 
-                    thisSpawnEntry.TeamIndex = structure.Team.Index;
-                    thisSpawnEntry.Classname = structure.ToString().Split('(')[0];
+                        thisSpawnEntry.TeamIndex = structure.Team.Index;
+                        thisSpawnEntry.Classname = structure.ToString().Split('(')[0];
 
-                    // only record health if damaged
-                    if (structure.DamageManager.Health01 < 0.99f)
-                    {
-                        thisSpawnEntry.Health = structure.DamageManager.Health;
+                        // only record health if damaged
+                        if (structure.DamageManager.Health01 < 0.99f)
+                        {
+                            thisSpawnEntry.Health = structure.DamageManager.Health;
+                        }
+
+                        // if there's a non-default tech tier
+                        if (structure.StructureTechnologyTier > 0)
+                        {
+                            thisSpawnEntry.TechTier = structure.StructureTechnologyTier;
+                        }
+
+                        if (structure.IsResourceHolder)
+                        {
+                            thisSpawnEntry.Resources = structure.GetStoredResources();
+                        }
+
+                        if (includeNetIDs)
+                        {
+                            thisSpawnEntry.NetID = structure.NetworkComponent.NetID;
+                        }
+
+                        spawnSetup.Structures.Add(thisSpawnEntry);
                     }
-
-                    // if there's a non-default tech tier
-                    if (structure.StructureTechnologyTier > 0)
-                    {
-                        thisSpawnEntry.TechTier = structure.StructureTechnologyTier;
-                    }
-
-                    if (structure.IsResourceHolder)
-                    {
-                        thisSpawnEntry.Resources = structure.GetStoredResources();
-                    }
-
-                    if (includeNetIDs)
-                    {
-                        thisSpawnEntry.NetID = structure.NetworkComponent.NetID;
-                    }
-
-                    spawnSetup.Structures.Add(thisSpawnEntry);
-                }
-
                 foreach (Unit unit in team.Units)
                 {
                     UnitSpawn thisSpawnEntry = new UnitSpawn();
 
                     float[] position = new float[]
                     {
-                        unit.transform.position.x,
-                        unit.transform.position.y,
-                        unit.transform.position.z
+                    unit.transform.position.x,
+                    unit.transform.position.y,
+                    unit.transform.position.z
                     };
                     thisSpawnEntry.Position = position;
 
                     Quaternion facingRotation = unit.GetFacingRotation();
                     float[] rotation = new float[]
                     {
-                        facingRotation.x,
-                        facingRotation.y,
-                        facingRotation.z,
-                        facingRotation.w
+                    facingRotation.x,
+                    facingRotation.y,
+                    facingRotation.z,
+                    facingRotation.w
                     };
                     thisSpawnEntry.Rotation = rotation;
 
@@ -981,6 +1017,8 @@ namespace Si_SpawnConfigs
 
                     spawnSetup.Units.Add(thisSpawnEntry);
                 }
+            }
+
             }
 
             return spawnSetup;
